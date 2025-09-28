@@ -5,6 +5,8 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 
+CURRENT_SEASON = 2025
+
 def update_cumulative(df, player, hr_dates):
     """Update cumulative home run counts for a player in the dataframe."""
     if not pd.api.types.is_datetime64_any_dtype(df['Date']):
@@ -82,6 +84,10 @@ def create_cumulative_home_runs_graph(player_names, season):
     data_folder = 'data'
     df_path = os.path.join(data_folder, f'HR_{season}.pkl')
     os.makedirs(data_folder, exist_ok=True)
+    
+    if season == CURRENT_SEASON and os.path.exists(df_path):
+        print(f"Forcing rebuild for current season ({season}) to get latest data...")
+        os.remove(df_path)
     
     if os.path.exists(df_path):
         print("Loading existing DataFrame state...")

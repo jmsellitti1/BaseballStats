@@ -13,9 +13,6 @@ def update_cumulative(df, player, hr_dates):
     last_idx = 0
     for hr_date in hr_dates:
         matches = df_dates[df_dates == hr_date]
-        if matches.empty:
-            print(f"Warning: No match found for {hr_date} for player {player}")
-            continue
         idx = matches.index[0]
         if idx - 1 >= last_idx:
             df.loc[last_idx:idx-1, player] = total

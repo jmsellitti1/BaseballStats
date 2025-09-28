@@ -66,8 +66,7 @@ def get_home_run_dates(player_name, start_date, end_date):
         print(f"Error getting schedule for {player_name}: {e}")
         return []
 
-def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end_date='2025-09-28', 
-                                    df_path='df_state.pkl', force_refresh=False):
+def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end_date='2025-09-28'):
     """
     Create a cumulative home runs comparison graph for multiple players.
     
@@ -75,21 +74,36 @@ def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end
         player_names (list): List of player names to compare
         start_date (str): Start date for the season (YYYY-MM-DD)
         end_date (str): End date for the season (YYYY-MM-DD)
-        df_path (str): Path to save/load the dataframe state
-        force_refresh (bool): If True, regenerate data even if cached file exists
     
     Returns:
         pandas.DataFrame: The dataframe with cumulative home run data
     """
     
-    if force_refresh and os.path.exists(df_path):
-        os.remove(df_path)
-        print("DataFrame state deleted for refresh.")
+    # Set up data storage paths
+    data_folder = 'data'
+    df_path = os.path.join(data_folder, 'HR.pkl')
     
-    if os.path.exists(df_path) and not force_refresh:
+    # Ensure data folder exists
+    os.makedirs(data_folder, exist_ok=True)
+    
+    if os.path.exists(df_path):
         print("Loading existing DataFrame state...")
         with open(df_path, 'rb') as f:
             df = pickle.load(f)
+        
+        # Check if we need to add new players
+        new_players = [player for player in player_names if player not in df.columns]
+        if new_players:
+            print(f"Adding new players: {new_players}")
+            for player in new_players:
+                df[player] = 0
+                hr_dates = get_home_run_dates(player, start_date, end_date)
+                update_cumulative(df, player, hr_dates)
+            
+            # Save updated dataframe
+            with open(df_path, 'wb') as f:
+                pickle.dump(df, f)
+            print(f"Updated DataFrame state saved to {df_path}")
     else:
         print("Creating new DataFrame...")
         dates = pd.date_range(start=start_date, end=end_date)
@@ -101,6 +115,7 @@ def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end
         df = pd.DataFrame(df_data)
         
         for player in player_names:
+            print(f"Getting home run data for {player}...")
             hr_dates = get_home_run_dates(player, start_date, end_date)
             update_cumulative(df, player, hr_dates)
         

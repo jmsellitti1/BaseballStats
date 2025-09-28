@@ -1,4 +1,4 @@
-import statsapi
+import statsapi  # pyright: ignore[reportMissingImports]
 import pandas as pd
 from tqdm import tqdm
 import os
@@ -40,14 +40,15 @@ def get_player_team_id(player_name):
         print(f"Error getting team for {player_name}: {e}")
         return None
 
-def get_home_run_dates(player_name, start_date, end_date):
+def get_home_run_dates(player_name, season):
     """Get all home run dates for a specific player within a date range."""
     team_id = get_player_team_id(player_name)
     if not team_id:
         return []
     
     try:
-        schedule = statsapi.schedule(start_date=start_date, end_date=end_date, team=team_id)
+        schedule = statsapi.schedule(season=season, team=team_id)
+        schedule = [game for game in schedule if game['game_type'] == 'R']
         hr_dates = []
         
         for game in tqdm(schedule, desc=f"Processing Games for {player_name}"):
@@ -66,24 +67,20 @@ def get_home_run_dates(player_name, start_date, end_date):
         print(f"Error getting schedule for {player_name}: {e}")
         return []
 
-def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end_date='2025-09-28'):
+def create_cumulative_home_runs_graph(player_names, season):
     """
     Create a cumulative home runs comparison graph for multiple players.
     
     Args:
         player_names (list): List of player names to compare
-        start_date (str): Start date for the season (YYYY-MM-DD)
-        end_date (str): End date for the season (YYYY-MM-DD)
+        season (int): The year/season (e.g., 2025)
     
     Returns:
         pandas.DataFrame: The dataframe with cumulative home run data
     """
     
-    # Set up data storage paths
     data_folder = 'data'
-    df_path = os.path.join(data_folder, 'HR.pkl')
-    
-    # Ensure data folder exists
+    df_path = os.path.join(data_folder, f'HR_{season}.pkl')
     os.makedirs(data_folder, exist_ok=True)
     
     if os.path.exists(df_path):
@@ -91,21 +88,23 @@ def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end
         with open(df_path, 'rb') as f:
             df = pickle.load(f)
         
-        # Check if we need to add new players
         new_players = [player for player in player_names if player not in df.columns]
         if new_players:
             print(f"Adding new players: {new_players}")
             for player in new_players:
                 df[player] = 0
-                hr_dates = get_home_run_dates(player, start_date, end_date)
+                hr_dates = get_home_run_dates(player, season)
                 update_cumulative(df, player, hr_dates)
             
-            # Save updated dataframe
             with open(df_path, 'wb') as f:
                 pickle.dump(df, f)
             print(f"Updated DataFrame state saved to {df_path}")
     else:
         print("Creating new DataFrame...")
+        schedule = statsapi.schedule(season=season, team=get_player_team_id(player_names[0]))
+        schedule = [game for game in schedule if game['game_type'] == 'R']
+        start_date = pd.to_datetime(schedule[0]['game_date'])
+        end_date = pd.to_datetime(schedule[-1]['game_date'])
         dates = pd.date_range(start=start_date, end=end_date)
         df_data = {'Date': dates}
         
@@ -116,7 +115,7 @@ def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end
         
         for player in player_names:
             print(f"Getting home run data for {player}...")
-            hr_dates = get_home_run_dates(player, start_date, end_date)
+            hr_dates = get_home_run_dates(player, season)
             update_cumulative(df, player, hr_dates)
         
         with open(df_path, 'wb') as f:
@@ -133,7 +132,7 @@ def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end
     
     plt.xlabel('Date')
     plt.ylabel('Home Runs (Cumulative)')
-    plt.title(f'Cumulative Home Runs: {" vs. ".join(player_names)} ({pd.to_datetime(start_date).year})')
+    plt.title(f'Cumulative Home Runs: {" vs. ".join(player_names)} ({pd.to_datetime(df["Date"].iloc[0]).year})')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -142,5 +141,5 @@ def create_cumulative_home_runs_graph(player_names, start_date='2025-03-27', end
     return df
 
 if __name__ == "__main__":
-    players = ['Aaron Judge', 'Cal Raleigh', 'Mookie Betts', 'Ronald Acuña Jr.']
-    df = create_cumulative_home_runs_graph(players)
+    players = ['Aaron Judge', 'Cal Raleigh']
+    df = create_cumulative_home_runs_graph(players, 2025)

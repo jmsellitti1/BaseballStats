@@ -29,55 +29,70 @@ def update_cumulative(df, player, stat_dates):
     if last_idx < len(df):
         df.loc[last_idx:, player] = total
 
-def get_player_team_id(player_name):
+def get_player_team_id(player_name, season):
     """Get the team ID for a given player name."""
-    players = statsapi.lookup_player(player_name)
+    players = statsapi.lookup_player(player_name, season=season)
     if not players:
         print(f"Warning: Player '{player_name}' not found")
-        return None
+        return 0
     
     return players[0]['currentTeam']['id']
-
-def find_player_in_boxscore(boxscore_data, player_name):
-    """Find a player in the box score data by name."""
-    for team in ['away', 'home']:
-        for player_id, player_data in boxscore_data[team]['players'].items():
-            if player_data['person']['fullName'].lower() == player_name.lower():
-                return player_id, player_data
-    return None, None
 
 def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
     """
     Extract a specific stat for a player from box score data.
-    Automatically detects whether the stat is batting or pitching.
-    
+    Intelligently determines whether to use batting or pitching stats based on context.
+
     Args:
         boxscore_data: The box score data from statsapi.boxscore_data()
         player_name: Name of the player to look up
         stat_type: The stat to extract (e.g., 'homeRuns', 'hits', 'runs', 'rbi', 'strikeOuts')
-    
+
     Returns:
         float: The stat value, or 0 if not found
     """
-    player_id, player_data = find_player_in_boxscore(boxscore_data, player_name)
-    
-    if not player_data:
+    player_data = None
+    for team in ['away', 'home']:
+        for id, data in boxscore_data[team]['players'].items():
+            if data['person']['fullName'].lower() == player_name.lower():
+                player_data = data
+                break
+        if player_data is not None:
+            break
+    if player_data is None:  # Player not in boxscore
         return 0
-    
-    for category in ['batting', 'pitching']:
-        if category in player_data['stats']:
-            stats = player_data['stats'][category]
-            if stat_type in stats and stats[stat_type] is not None:
-                try:
-                    return float(stats[stat_type])
-                except (ValueError, TypeError):
-                    continue
+
+    position = player_data.get('position', {}).get('abbreviation', None)
+    stats = player_data.get('stats', {})
+
+    batting_stats = stats.get('batting', {})
+    pitching_stats = stats.get('pitching', {})
+
+    try:
+        if position == 'P':
+            if stat_type in pitching_stats and pitching_stats[stat_type] is not None:
+                return float(pitching_stats[stat_type])
+        else:
+            if stat_type in batting_stats and batting_stats[stat_type] is not None:
+                return float(batting_stats[stat_type])
+    except (KeyError, TypeError, ValueError):
+        pass
+
+    # Fallback: search both categories and return the first non-zero value
+    for category_stats in [batting_stats, pitching_stats]:
+        if stat_type in category_stats and category_stats[stat_type] is not None:
+            try:
+                value = float(category_stats[stat_type])
+                if value > 0:  # Only return non-zero values in fallback
+                    return value
+            except (ValueError, TypeError):
+                continue
     return 0
 
 def get_player_stats_from_schedule(player_name, season, stat_type):
     """
     Get all stat values for a specific player from their team's schedule using box score data.
-    Automatically detects whether the stat is batting or pitching.
+    Intelligently determines whether to use batting or pitching stats based on context.
     
     Args:
         player_name: Name of the player to look up
@@ -87,7 +102,7 @@ def get_player_stats_from_schedule(player_name, season, stat_type):
     Returns:
         list: List of tuples (game_date, stat_value)
     """
-    team_id = get_player_team_id(player_name)
+    team_id = get_player_team_id(player_name, season)
     
     schedule = statsapi.schedule(season=season, team=team_id)
     schedule = [game for game in schedule if game['game_type'] == 'R']
@@ -150,7 +165,13 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
             print(f"Updated DataFrame state saved to {df_path}")
     else:
         print("Creating new DataFrame...")
-        schedule = statsapi.schedule(season=season, team=get_player_team_id(player_names[0]))
+        for player in player_names:
+            team = get_player_team_id(player, season)
+            if team > 0:
+                break
+        if team == 0:
+            print("Warning: No valid players found in list")
+        schedule = statsapi.schedule(season=season, team=team)
         schedule = [game for game in schedule if game['game_type'] == 'R']
         start_date = pd.to_datetime(schedule[0]['game_date'])
         end_date = pd.to_datetime(schedule[-1]['game_date'])
@@ -163,7 +184,7 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
         df = pd.DataFrame(df_data)
         
         for player in player_names:
-            print(f"Getting {stat_type} data for {player}...")
+            print(f"Getting {stat_display_name} data for {player}...")
             stat_dates = get_player_stats_from_schedule(player, season, stat_type)
             update_cumulative(df, player, stat_dates)
         
@@ -191,8 +212,8 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
 
 if __name__ == "__main__":
     # Examples:
-    players = ['Aaron Judge', 'Cal Raleigh']
-    df = create_cumulative_stats_graph(players, 2025, 'homeRuns', 'Home Runs')
+    # players = ['Aaron Judge', 'Cal Raleigh']
+    # df = create_cumulative_stats_graph(players, 2025, 'homeRuns', 'Home Runs')
     
     # players = ['Aaron Judge', 'Cal Raleigh']
     # df = create_cumulative_stats_graph(players, 2025, 'hits', 'Hits')
@@ -200,9 +221,7 @@ if __name__ == "__main__":
     # players = ['Aaron Judge', 'Cal Raleigh']
     # df = create_cumulative_stats_graph(players, 2025, 'rbi', 'RBIs')
     
-    # pitchers = ['Gerrit Cole', 'Shane Bieber']
-    # df = create_cumulative_stats_graph(pitchers, 2025, 'strikeOuts', 'Strikeouts')
-    
-    # schedule = statsapi.schedule(team=147, season=CURRENT_SEASON)
-    # schedule = [game for game in schedule if game['game_type'] == 'R']
-    # print(statsapi.boxscore_data(schedule[0]['game_id']))
+    pitchers = ['Gerrit Cole', 'Shane Bieber']
+    df = create_cumulative_stats_graph(pitchers, 2024, 'strikeOuts', 'Strikeouts')
+
+    # print(statsapi.roster(147, season = 2024))

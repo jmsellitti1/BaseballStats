@@ -4,6 +4,7 @@ from tqdm import tqdm
 import os
 import pickle
 import matplotlib.pyplot as plt
+from unidecode import unidecode
 
 CURRENT_SEASON = 2026 # Only using regular season games for now so can assume 2025 is completed
 
@@ -53,7 +54,7 @@ def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
     player_data = None
     for team in ['away', 'home']:
         for id, data in boxscore_data[team]['players'].items():
-            if data['person']['fullName'].lower() == player_name.lower():
+            if unidecode(data['person']['fullName']).lower() == player_name.lower(): # Normalize names for comparison
                 player_data = data
                 break
         if player_data is not None:
@@ -102,7 +103,8 @@ def get_player_stats_from_schedule(player_name, season, stat_type):
         list: List of tuples (game_date, stat_value)
     """
     team_id = get_player_team_id(player_name, season)
-    
+    if team_id == 0: # Player not found
+        return []
     schedule = statsapi.schedule(season=season, team=team_id)
     schedule = [game for game in schedule if game['game_type'] == 'R']
     stat_dates = []
@@ -151,19 +153,8 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
         print("Loading existing DataFrame state...")
         with open(df_path, 'rb') as f:
             df = pickle.load(f)
-
-        # Add new players if needed
         new_players = [player for player in player_names if player not in df.columns]
-        if new_players:
-            print(f"Adding new players: {new_players}")
-            for player in new_players:
-                df[player] = 0
-                stat_dates = get_player_stats_from_schedule(player, season, stat_type)
-                update_cumulative(df, player, stat_dates)
-
-        with open(df_path, 'wb') as f:
-            pickle.dump(df, f)
-        print(f"DataFrame state saved to {df_path}")
+        
     else:
         print("Creating new DataFrame...")
         team = 0
@@ -173,47 +164,53 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
                 break
         if team == 0:
             print("Warning: No valid players found in list")
+            return None
         schedule = statsapi.schedule(season=season, team=team)
         schedule = [game for game in schedule if game['game_type'] == 'R']
         start_date = pd.to_datetime(schedule[0]['game_date'])
         end_date = pd.to_datetime(schedule[-1]['game_date'])
         dates = pd.date_range(start=start_date, end=end_date)
         df_data = {'Date': dates}
-
-        for player in player_names:
-            df_data[player] = 0
-
         df = pd.DataFrame(df_data)
-
-        for player in player_names:
+        new_players = player_names
+        
+    # Track original columns for possible revert
+    original_columns = df.columns.copy()
+    actually_added_players = []
+    if new_players:
+        print(f"Adding new players: {', '.join(new_players)}")
+        for player in new_players:
             stat_dates = get_player_stats_from_schedule(player, season, stat_type)
-            update_cumulative(df, player, stat_dates)
-
-        with open(df_path, 'wb') as f:
-            pickle.dump(df, f)
-        print(f"DataFrame state saved to {df_path.split('/')[-1]}")
-
-    # Only plot the requested subset of players
-    plt.figure(figsize=(12, 6))
-    for player in player_names:
-        if player in df.columns:
-            plt.plot(df['Date'], df[player], label=player)
+            if stat_dates:
+                df[player] = 0
+                update_cumulative(df, player, stat_dates)
+                actually_added_players.append(player)
+    plot_players = [player for player in player_names if player in df.columns]
+    for player in plot_players:
+        plt.plot(df['Date'], df[player], label=player)
     plt.xlabel('Date')
     plt.ylabel(f'{stat_display_name} (Cumulative)')
-    plt.title(f'Cumulative {stat_display_name}: {' vs. '.join(player_names)} ({pd.to_datetime(df['Date'].iloc[0]).year})')
+    plt.title(f'Cumulative {stat_display_name}: {' vs. '.join(plot_players)} ({pd.to_datetime(df['Date'].iloc[0]).year})')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
-
-    # Option to save/delete pkl file
-    save_or_delete = input("Save Data? (y/n): ")
-    if save_or_delete.lower() == 'y' or not save_or_delete:
-        print("DataFrame save confirmed")
+    
+    if actually_added_players:
+        save_or_delete = input(f"Save Data with new players {', '.join(actually_added_players)}? (y/n): ")
+        if save_or_delete.lower() == 'y' or not save_or_delete:
+            with open(df_path, 'wb') as f:
+                pickle.dump(df, f)
+            print(f"DataFrame state saved to {df_path}")
+        else:
+            df = df[original_columns]
+            print("DataFrame reverted to previous state; new players not saved.")
     else:
-        os.remove(df_path)
-        print("DataFrame state deleted")
+        print("No new players added; DataFrame unchanged.")
 
 if __name__ == "__main__":
-    players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani']
-    create_cumulative_stats_graph(players, 2025, 'rbi', 'RBI\'s')
+#     players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani']
+#     create_cumulative_stats_graph(players, 2025, 'rbi', 'RBI\'s')
+    
+    pitchers = ['Max Fried', 'Tarik Skubal', 'Cam Schlittler', 'Carlos Rodon']
+    create_cumulative_stats_graph(pitchers, 2025, 'strikeOuts', 'Strikeouts')

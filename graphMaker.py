@@ -1,3 +1,4 @@
+from genericpath import exists
 import statsapi  # pyright: ignore[reportMissingImports]
 import pandas as pd
 from tqdm import tqdm
@@ -14,21 +15,24 @@ def update_cumulative(df, player, stat_dates):
         df['Date'] = pd.to_datetime(df['Date'])
     df_dates = df['Date']
 
-    total = 0
     last_idx = 0
-    for stat_date, stat_value in stat_dates:
+    last_value = 0
+    for stat_date, cumulative_value in stat_dates:
         matches = df_dates[df_dates == stat_date]
         if matches.empty:
             print(f"Warning: No match found for {stat_date} for player {player}")
             continue
         idx = matches.index[0]
         if idx - 1 >= last_idx:
-            df.loc[last_idx:idx-1, player] = total
-        total += stat_value
-        df.loc[idx, player] = total
+            df.loc[last_idx:idx-1, player] = last_value
+        if cumulative_value == 0 and last_value > 0:
+            df.loc[idx, player] = last_value
+        else:
+            df.loc[idx, player] = cumulative_value
+            last_value = cumulative_value
         last_idx = idx + 1
     if last_idx < len(df):
-        df.loc[last_idx:, player] = total
+        df.loc[last_idx:, player] = last_value
 
 def get_player_team_id(player_name, season):
     """Get the team ID for a given player name."""
@@ -36,7 +40,6 @@ def get_player_team_id(player_name, season):
     if not players:
         print(f"Warning: Player '{player_name}' not found")
         return 0
-    
     return players[0]['currentTeam']['id']
 
 def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
@@ -54,7 +57,9 @@ def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
     player_data = None
     for team in ['away', 'home']:
         for id, data in boxscore_data[team]['players'].items():
-            if unidecode(data['person']['fullName']).lower() == player_name.lower(): # Normalize names for comparison
+            box_name = unidecode(data['person']['fullName']).strip().lower()
+            search_name = unidecode(player_name).strip().lower()
+            if box_name == search_name:
                 player_data = data
                 break
         if player_data is not None:
@@ -62,32 +67,20 @@ def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
     if player_data is None:  # Player not in boxscore
         return 0
 
-    position = player_data.get('position', {}).get('abbreviation', None)
-    stats = player_data.get('stats', {})
-
-    batting_stats = stats.get('batting', {})
-    pitching_stats = stats.get('pitching', {})
-
-    try:
-        if position == 'P':
-            if stat_type in pitching_stats and pitching_stats[stat_type] is not None:
-                return float(pitching_stats[stat_type])
-        else:
-            if stat_type in batting_stats and batting_stats[stat_type] is not None:
-                return float(batting_stats[stat_type])
-    except (KeyError, TypeError, ValueError):
-        pass
-
-    # Fallback: search pitching and batting categories and return the first non-zero value
-    for category_stats in [batting_stats, pitching_stats]:
-        if stat_type in category_stats and category_stats[stat_type] is not None:
+    # Get cumulative stat from seasonStats
+    season_stats = player_data.get('seasonStats', {})
+    if player_data.get('position', {}).get('abbreviation') == 'P':
+        category = 'pitching'
+    else:
+        category = 'batting'
+    if stat_type in season_stats[category]:
+        value = season_stats[category][stat_type]
+        if value is not None:
             try:
-                value = float(category_stats[stat_type])
-                if value > 0:  # Only return non-zero values in fallback
-                    return value
+                return float(value)
             except (ValueError, TypeError):
-                continue
-    return 0
+                pass
+
 
 def get_player_stats_from_schedule(player_name, season, stat_type):
     """
@@ -112,15 +105,11 @@ def get_player_stats_from_schedule(player_name, season, stat_type):
     for game in tqdm(schedule, desc=f"Counting stat \"{stat_type}\" for {player_name}"):
         try:
             boxscore_data = statsapi.boxscore_data(game['game_id'])
-            stat_value = extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type)
-            
-            if stat_value > 0:
-                stat_dates.append((game['game_date'], stat_value))
-                
+            cumulative_value = extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type)
+            stat_dates.append((game['game_date'], cumulative_value))
         except Exception as e:
             print(f"Error processing game {game['game_id']}: {e}")
             continue
-            
     return stat_dates
 
 
@@ -209,8 +198,8 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
         print("No new players added; DataFrame unchanged.")
 
 if __name__ == "__main__":
-#     players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani']
-#     create_cumulative_stats_graph(players, 2025, 'rbi', 'RBI\'s')
+    players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani']
+    create_cumulative_stats_graph(players, 2025, 'rbi', 'RBI\'s')
     
-    pitchers = ['Max Fried', 'Tarik Skubal', 'Cam Schlittler', 'Carlos Rodon']
+    pitchers = ['Max Fried', 'Cam Schlittler', 'Carlos Rodon', 'Tarik Skubal']
     create_cumulative_stats_graph(pitchers, 2025, 'strikeOuts', 'Strikeouts')

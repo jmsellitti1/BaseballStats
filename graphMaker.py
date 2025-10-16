@@ -75,7 +75,7 @@ def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
         category = 'batting'
     if stat_type in season_stats[category]:
         value = season_stats[category][stat_type]
-        if value is not None:
+        if value is not None and value != '-.--':
             try:
                 return float(value)
             except (ValueError, TypeError):
@@ -102,7 +102,7 @@ def get_player_stats_from_schedule(player_name, season, stat_type):
     schedule = [game for game in schedule if game['game_type'] == 'R']
     stat_dates = []
         
-    for game in tqdm(schedule, desc=f"Counting stat \"{stat_type}\" for {player_name}"):
+    for game in tqdm(schedule, desc=f"Counting stat \"{stat_type}\" for {player_name} in {season}"):
         try:
             boxscore_data = statsapi.boxscore_data(game['game_id'])
             cumulative_value = extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type)
@@ -171,7 +171,7 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
         for player in new_players:
             stat_dates = get_player_stats_from_schedule(player, season, stat_type)
             if stat_dates:
-                df[player] = 0
+                df[player] = 0.0
                 update_cumulative(df, player, stat_dates)
                 actually_added_players.append(player)
     plot_players = [player for player in player_names if player in df.columns]
@@ -198,8 +198,8 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
         print("No new players added; DataFrame unchanged.")
 
 if __name__ == "__main__":
-    players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani']
-    create_cumulative_stats_graph(players, 2025, 'rbi', 'RBI\'s')
+    # players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani', 'Anthony Volpe']
+    # create_cumulative_stats_graph(players, 2024, 'homeRuns', 'Home Runs')
     
-    pitchers = ['Max Fried', 'Cam Schlittler', 'Carlos Rodon', 'Tarik Skubal']
-    create_cumulative_stats_graph(pitchers, 2025, 'strikeOuts', 'Strikeouts')
+    pitchers = ['Max Fried', 'Tarik Skubal', 'Paul Skenes', 'Test Player']
+    create_cumulative_stats_graph(pitchers, 2025, 'era', 'ERA')

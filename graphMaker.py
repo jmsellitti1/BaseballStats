@@ -9,15 +9,15 @@ from unidecode import unidecode
 
 CURRENT_SEASON = 2026 # Only using regular season games for now so can assume 2025 is completed
 
-def update_cumulative(df, player, stat_dates):
-    """Update cumulative stat counts for a player in the dataframe."""
+def update_stat(df, player, stat_dates):
+    """Update stat counts for a player in the dataframe."""
     if not pd.api.types.is_datetime64_any_dtype(df['Date']):
         df['Date'] = pd.to_datetime(df['Date'])
     df_dates = df['Date']
 
     last_idx = 0
     last_value = 0
-    for stat_date, cumulative_value in stat_dates:
+    for stat_date, value in stat_dates:
         matches = df_dates[df_dates == stat_date]
         if matches.empty:
             print(f"Warning: No match found for {stat_date} for player {player}")
@@ -25,11 +25,11 @@ def update_cumulative(df, player, stat_dates):
         idx = matches.index[0]
         if idx - 1 >= last_idx:
             df.loc[last_idx:idx-1, player] = last_value
-        if cumulative_value == 0 and last_value > 0:
+        if value == 0 and last_value > 0:
             df.loc[idx, player] = last_value
         else:
-            df.loc[idx, player] = cumulative_value
-            last_value = cumulative_value
+            df.loc[idx, player] = value
+            last_value = value
         last_idx = idx + 1
     if last_idx < len(df):
         df.loc[last_idx:, player] = last_value
@@ -67,7 +67,7 @@ def extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type):
     if player_data is None:  # Player not in boxscore
         return 0
 
-    # Get cumulative stat from seasonStats
+    # Get stat from seasonStats
     season_stats = player_data.get('seasonStats', {})
     if player_data.get('position', {}).get('abbreviation') == 'P':
         category = 'pitching'
@@ -105,17 +105,17 @@ def get_player_stats_from_schedule(player_name, season, stat_type):
     for game in tqdm(schedule, desc=f"Counting stat \"{stat_type}\" for {player_name} in {season}"):
         try:
             boxscore_data = statsapi.boxscore_data(game['game_id'])
-            cumulative_value = extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type)
-            stat_dates.append((game['game_date'], cumulative_value))
+            value = extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type)
+            stat_dates.append((game['game_date'], value))
         except Exception as e:
             print(f"Error processing game {game['game_id']}: {e}")
             continue
     return stat_dates
 
 
-def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_name=None):
+def create_stats_graph(player_names, season, stat_type, stat_display_name=None):
     """
-    Create a cumulative stats comparison graph for multiple players.
+    Create a comparison graph for multiple players.
     
     Args:
         player_names (list): List of player names to compare
@@ -124,7 +124,7 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
         stat_display_name (str): Display name for the stat (defaults to stat_type)
     
     Returns:
-        pandas.DataFrame: The dataframe with cumulative stat data
+        pandas.DataFrame: The dataframe with stat data
     """
 
     if stat_display_name is None:
@@ -172,14 +172,14 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
             stat_dates = get_player_stats_from_schedule(player, season, stat_type)
             if stat_dates:
                 df[player] = 0.0
-                update_cumulative(df, player, stat_dates)
+                update_stat(df, player, stat_dates)
                 actually_added_players.append(player)
     plot_players = [player for player in player_names if player in df.columns]
     for player in plot_players:
         plt.plot(df['Date'], df[player], label=player)
     plt.xlabel('Date')
-    plt.ylabel(f'{stat_display_name} (Cumulative)')
-    plt.title(f'Cumulative {stat_display_name}: {' vs. '.join(plot_players)} ({pd.to_datetime(df['Date'].iloc[0]).year})')
+    plt.ylabel(f'{stat_display_name}')
+    plt.title(f'{stat_display_name}: {' vs. '.join(plot_players)} ({pd.to_datetime(df['Date'].iloc[0]).year})')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -199,7 +199,7 @@ def create_cumulative_stats_graph(player_names, season, stat_type, stat_display_
 
 if __name__ == "__main__":
     # players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani', 'Anthony Volpe']
-    # create_cumulative_stats_graph(players, 2024, 'homeRuns', 'Home Runs')
+    # create_stats_graph(players, 2024, 'homeRuns', 'Home Runs')
     
     pitchers = ['Max Fried', 'Tarik Skubal', 'Paul Skenes', 'Test Player']
-    create_cumulative_stats_graph(pitchers, 2025, 'era', 'ERA')
+    create_stats_graph(pitchers, 2025, 'era', 'ERA')

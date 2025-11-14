@@ -1,4 +1,3 @@
-from genericpath import exists
 import statsapi  # pyright: ignore[reportMissingImports]
 import pandas as pd
 from tqdm import tqdm
@@ -8,6 +7,8 @@ import matplotlib.pyplot as plt
 from unidecode import unidecode
 
 CURRENT_SEASON = 2026 # Only using regular season games for now so can assume 2025 is completed
+SCHEDULE_CACHE = {}
+BOXSCORE_CACHE = {}
 
 def update_stat(df, player, stat_dates):
     """Update stat counts for a player in the dataframe."""
@@ -25,6 +26,10 @@ def update_stat(df, player, stat_dates):
         idx = matches.index[0]
         if idx - 1 >= last_idx:
             df.loc[last_idx:idx-1, player] = last_value
+        if value is None:
+            value = 0
+        if last_value is None:
+            last_value = 0
         if value == 0 and last_value > 0:
             df.loc[idx, player] = last_value
         else:
@@ -98,13 +103,21 @@ def get_player_stats_from_schedule(player_name, season, stat_type):
     team_id = get_player_team_id(player_name, season)
     if team_id == 0: # Player not found
         return []
-    schedule = statsapi.schedule(season=season, team=team_id)
-    schedule = [game for game in schedule if game['game_type'] == 'R']
+    if team_id in SCHEDULE_CACHE:
+        schedule = SCHEDULE_CACHE[team_id]
+    else:
+        schedule = statsapi.schedule(season=season, team=team_id)
+        schedule = [game for game in schedule if game['game_type'] == 'R']
+        SCHEDULE_CACHE[team_id] = schedule
     stat_dates = []
         
     for game in tqdm(schedule, desc=f"Counting stat \"{stat_type}\" for {player_name} in {season}"):
         try:
-            boxscore_data = statsapi.boxscore_data(game['game_id'])
+            if game['game_id'] in BOXSCORE_CACHE:
+                boxscore_data = BOXSCORE_CACHE[game['game_id']]
+            else:
+                boxscore_data = statsapi.boxscore_data(game['game_id'])
+                BOXSCORE_CACHE[game['game_id']] = boxscore_data
             value = extract_player_stat_from_boxscore(boxscore_data, player_name, stat_type)
             stat_dates.append((game['game_date'], value))
         except Exception as e:
@@ -142,8 +155,7 @@ def create_stats_graph(player_names, season, stat_type, stat_display_name=None):
         print("Loading existing DataFrame state...")
         with open(df_path, 'rb') as f:
             df = pickle.load(f)
-        new_players = [player for player in player_names if player not in df.columns]
-        
+        new_players = [player for player in player_names if player not in df.columns]      
     else:
         print("Creating new DataFrame...")
         team = 0
@@ -156,6 +168,7 @@ def create_stats_graph(player_names, season, stat_type, stat_display_name=None):
             return None
         schedule = statsapi.schedule(season=season, team=team)
         schedule = [game for game in schedule if game['game_type'] == 'R']
+        SCHEDULE_CACHE[team] = schedule
         start_date = pd.to_datetime(schedule[0]['game_date'])
         end_date = pd.to_datetime(schedule[-1]['game_date'])
         dates = pd.date_range(start=start_date, end=end_date)
@@ -201,5 +214,5 @@ if __name__ == "__main__":
     # players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani', 'Anthony Volpe']
     # create_stats_graph(players, 2024, 'homeRuns', 'Home Runs')
     
-    pitchers = ['Max Fried', 'Tarik Skubal', 'Paul Skenes', 'Test Player']
-    create_stats_graph(pitchers, 2025, 'era', 'ERA')
+    pitchers = ['Carlos Rodon', 'Luke Weaver']
+    create_stats_graph(pitchers, 2024, 'era', 'ERA')

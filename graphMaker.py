@@ -211,8 +211,5 @@ def create_stats_graph(player_names, season, stat_type, stat_display_name=None):
         print("No new players added; DataFrame unchanged.")
 
 if __name__ == "__main__":
-    # players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani', 'Anthony Volpe']
-    # create_stats_graph(players, 2024, 'homeRuns', 'Home Runs')
-    
-    pitchers = ['Carlos Rodon', 'Luke Weaver']
-    create_stats_graph(pitchers, 2024, 'era', 'ERA')
+    players = ['Aaron Judge', 'Cal Raleigh', 'Shohei Ohtani', 'Julio Rodriguez']
+    create_stats_graph(players, 2025, 'homeRuns', 'Home Runs')
